@@ -1,0 +1,7 @@
+bq25186 KEYWORD1
+
+//Setup
+begin	KEYWORD2
+debug	KEYWORD2
+
+//constant	KEYWORD3
