@@ -67,6 +67,8 @@
 #define BQ25186_PG_GPO_LOW					0b00010000
 #define BQ25186_SYS_MODE_FLOAT				0b00001000
 #define BQ25186_SYS_MODE_PULLDOWN			0b00001100
+#define BQ25186_SYS_WATCHDOG_15S_ENABLE		0b00000010
+#define BQ25186_SYS_WATCHDOG_15S_DISABLE	0b00000000
 
 class bq25186 {
 
@@ -144,6 +146,8 @@ class bq25186 {
 		bool set_pg_pin_state(uint8_t value);
 		uint8_t get_sys_mode();
 		bool set_sys_mode(uint8_t value);
+		uint8_t get_i2c_watchdog_mode();
+		bool set_i2c_watchdog_mode(uint8_t value);
 		#if defined BQ25186_INCLUDE_DEBUG_FUNCTIONS
 		void debug(Stream &);												//Start debugging on a stream
 		void print_registers();												//Print all the registers to the debug Stream

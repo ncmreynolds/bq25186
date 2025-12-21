@@ -81,6 +81,7 @@ void loop() {
     //Fast charge mode
     Serial.print("Fast charge mode:");
     printTrueFalse(charger.get_en_fc_mode());
+    Serial.print("\t");
     //Discharge current limit
     Serial.print("Battery discharge over current protection limit:");
     Serial.print(charger.get_ibat_ocp());
@@ -133,6 +134,13 @@ void loop() {
       Serial.print("disconnected and floating\t");
     } else if(charger.get_sys_mode() == BQ25186_SYS_MODE_PULLDOWN) {
       Serial.print("disconnected and pulled down\t");
+    }
+    //I2C watchdog
+    Serial.print("I2C system watchdog:");
+    if(charger.get_i2c_watchdog_mode() == BQ25186_SYS_WATCHDOG_15S_ENABLE) {
+      Serial.println("enabled\t");
+    } else {
+      Serial.println("disabled\t");
     }
     Serial.println();
   }

@@ -440,4 +440,10 @@ uint8_t bq25186::get_sys_mode() {
 bool bq25186::set_sys_mode(uint8_t value) {
 	return write_masked_value_to_register_(0xa0, 0b00001100, value);
 }
+uint8_t bq25186::get_i2c_watchdog_mode() {
+	return read_masked_value_from_register_(0xa0, 0b00000010);
+}
+bool bq25186::set_i2c_watchdog_mode(uint8_t value) {
+	return write_masked_value_to_register_(0xa0, 0b00000010, value);
+}
 #endif
