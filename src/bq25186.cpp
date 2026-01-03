@@ -22,13 +22,13 @@ bq25186::~bq25186()	//Destructor function
 
 bool bq25186::begin(TwoWire &wirePort) {
 	i2cPort_ = &wirePort;			//Set the wire instance used for the charger
-	if(read_registers_()) {	//Read all registers at startup
+	bq25186_communicating_ok_ = read_registers_();
+	if(bq25186_communicating_ok_) {	//Read all registers at startup
 		#if defined BQ25186_INCLUDE_DEBUG_FUNCTIONS
 		if(debug_uart_ != nullptr) {
 			debug_uart_->println(F("BQ25186 library started"));
 		}
 		#endif
-		return true;
 	} else {
 		#if defined BQ25186_INCLUDE_DEBUG_FUNCTIONS
 		if(debug_uart_ != nullptr) {
@@ -36,13 +36,13 @@ bool bq25186::begin(TwoWire &wirePort) {
 		}
 		#endif
 	}
-	return false;
+	return bq25186_communicating_ok_;
 }
 #if defined BQ25186_INCLUDE_DEBUG_FUNCTIONS
 void bq25186::debug(Stream &terminalStream) {
 	debug_uart_ = &terminalStream;		//Set the stream used for the terminal
 }
-void bq25186::hexPrint(uint8_t value) {
+void bq25186::printHex(uint8_t value) {
 	if(value < 0x10) {
 		debug_uart_->print("0x0");
 	} else {
@@ -50,8 +50,21 @@ void bq25186::hexPrint(uint8_t value) {
 	}
 	debug_uart_->print(value,HEX);
 }
-void bq25186::hexPrintln(uint8_t value) {
-	hexPrint(value);
+void bq25186::printHexln(uint8_t value) {
+	printHex(value);
+	debug_uart_->println();
+}
+void bq25186::printBinary(uint8_t value) {
+	for(uint8_t index = 0; index < 8;index++){
+		if((0x80 >> index) & value) {
+			debug_uart_->print('1');
+		} else {
+			debug_uart_->print('0');
+		}
+	}
+}
+void bq25186::printBinaryLn(uint8_t value) {
+	printBinary(value);
 	debug_uart_->println();
 }
 void bq25186::print_registers() {
@@ -59,30 +72,33 @@ void bq25186::print_registers() {
 	if(debug_uart_ != nullptr) {
 		for(uint8_t index = 0; index < bq25186_number_of_registers_; index++) {	//Iterate all the registers and print them
 			debug_uart_->print(F("Register:"));
-			hexPrint(index);
+			printHex(index);
 			debug_uart_->print(F(" value:"));
-			hexPrintln(registers[index]);
+			printHex(registers[index]);
+			debug_uart_->print('/');
+			printBinaryLn(registers[index]);
 		}
 	}
 }
 #endif
 bool bq25186::auto_refresh_all_registers_() {
 	if(millis() - register_refresh_timer_ > register_refresh_rate_limit_) {
+		register_refresh_timer_ = millis();
 		#if defined BQ25186_INCLUDE_DEBUG_FUNCTIONS
 		if(debug_uart_ != nullptr) {
-			debug_uart_->println(F("Refreshing BQ25186 register values"));
+			debug_uart_->print(F("Refreshing BQ25186 register values "));
 		}
 		#endif
-		return read_registers_();
+		bq25186_communicating_ok_ = read_registers_();
 	}
-	return false;
+	return bq25186_communicating_ok_;
 }
-bool bq25186::read_registers_(uint8_t start, uint8_t length) {
+bool bq25186::read_registers_(uint8_t start, uint8_t length, bool stop) {
 	i2cPort_->beginTransmission(bq25186_i2c_address_);			//Start I2C transmission
 	i2cPort_->write(start);										//Send the register to begin reading from
 	if(i2cPort_->endTransmission() == 0)						//Check that it was sent
 	{
-		uint8_t bytesReceived = i2cPort_->requestFrom(bq25186_i2c_address_, bq25186_number_of_registers_);	//Request the registers
+		uint8_t bytesReceived = i2cPort_->requestFrom(bq25186_i2c_address_, bq25186_number_of_registers_, stop);	//Request the registers and optionally send a 'stop'
 		if(bytesReceived == length) {
 			while(i2cPort_->available() && bytesReceived > 0) {
 				registers[length-bytesReceived] = i2cPort_->read();		//Read the current byte
@@ -113,218 +129,238 @@ bool bq25186::read_registers_(uint8_t start, uint8_t length) {
 	}
 	return false;
 }
-uint8_t bq25186::read_masked_value_from_register_(uint8_t index, uint8_t mask) {
-	auto_refresh_all_registers_();			//Only refresh the registers if they have not been read recently
-	return registers[index] & mask;
+uint8_t bq25186::read_bitmasked_value_from_register_(uint8_t index, uint8_t mask) {
+	if(auto_refresh_all_registers_()) {			//Only refreshes the registers if they have not been read recently
+		return registers[index] & mask;
+	} else {
+		return BQ25186_I2C_BITMASK_ALL;
+	}
 }
-bool bq25186::write_register_(uint8_t index) {
-	uint8_t data[2] = {index, registers[index]};	//Put the address and value together to send
+bool bq25186::write_register_(uint8_t registerIndex, uint8_t registerValue, bool stop) {
 	i2cPort_->beginTransmission(bq25186_i2c_address_);	//Start I2C transmission
-	i2cPort_->write(data,2);							//Send the register and value
-	if(i2cPort_->endTransmission() == 0) {				//Check that it was sent
+	uint8_t i2cData[2] = {registerIndex, registerValue};//Put the address and value together to send
+	i2cPort_->write(i2cData,2);							//Send the register and value
+	uint8_t i2cError = i2cPort_->endTransmission(stop);	//End the transmission, with a stop
+	if(i2cError == 0) {									//Check that it was sent
+		#if defined BQ25186_INCLUDE_DEBUG_FUNCTIONS
+			if(debug_uart_ != nullptr) {
+				debug_uart_->println(F("Register write succeeded"));
+			}
+		#endif
+		return true;
+	}
+	#if defined BQ25186_INCLUDE_DEBUG_FUNCTIONS
+		if(debug_uart_ != nullptr) {
+			debug_uart_->print(F("Register write failed, error:"));
+			switch (i2cError) {
+				  case 1:
+					debug_uart_->println(F("data too long to fit in transmit buffer"));
+					break;
+				  case 2:
+					debug_uart_->println(F("received NACK on transmit of address"));
+					break;
+				  case 3:
+					debug_uart_->println(F("received NACK on transmit of data"));
+					break;
+				  case 4:
+					debug_uart_->println(F("other error"));
+					break;
+				  case 5:
+					debug_uart_->println(F("timeout"));
+					break;
+				  default:
+					debug_uart_->println(F("unknown"));
+					break;
+			}
+		}
+	#endif
+	return false;
+}
+bool bq25186::write_bitmasked_value_to_register_(uint8_t index, uint8_t mask, uint8_t value) {
+	#if defined BQ25186_INCLUDE_DEBUG_FUNCTIONS
+	if(debug_uart_ != nullptr) {
+		debug_uart_->print(F("Writing bit masked value to register:"));
+		printHex(index);
+		debug_uart_->print(F(" mask:"));
+		printBinary(mask);
+		debug_uart_->print(F(" value:"));
+		printBinary(value);
+		debug_uart_->println();
+	}
+	#endif
+	auto_refresh_all_registers_();			//Only refresh the registers if they have not been read recently
+	#if defined BQ25186_INCLUDE_DEBUG_FUNCTIONS
+	if(debug_uart_ != nullptr) {
+		debug_uart_->print(F("Current value:"));
+		printHex(registers[index]);
+		debug_uart_->print('/');
+		printBinary(registers[index]);
+	}
+	#endif
+	uint8_t newValue = (registers[index] & (mask ^ 0xff)) | (value & mask);
+	#if defined BQ25186_INCLUDE_DEBUG_FUNCTIONS
+	if(debug_uart_ != nullptr) {
+		debug_uart_->print(F(" new value:"));
+		printHex(newValue);
+		debug_uart_->print('/');
+		printBinaryLn(newValue);
+	}
+	#endif
+	if(write_register_(index, newValue)) {
+		registers[index] = newValue;
 		return true;
 	}
 	return false;
 }
-bool bq25186::write_masked_value_to_register_(uint8_t index, uint8_t mask, uint8_t value) {
-	auto_refresh_all_registers_();			//Only refresh the registers if they have not been read recently
-	registers[index] = (registers[index] & mask) | value;
-	return write_register_(index);
+//Register 0x00
+uint8_t bq25186::ts_open_stat() {
+	return read_bitmasked_value_from_register_(0x00,BQ25186_I2C_BITMASK_7);
 }
-bool bq25186::ts_open() {
-	auto_refresh_all_registers_();			//Only refresh the registers if they have not been read recently
-	return bitRead(registers[0], 7) == 1;
+uint8_t bq25186::chg_stat() {
+	return read_bitmasked_value_from_register_(0x00,BQ25186_I2C_BITMASK_6_5);
 }
-uint8_t bq25186::chg() {
-	return read_masked_value_from_register_(0x00,0b01100000);
+uint8_t bq25186::ilim_active_stat() {
+	return read_bitmasked_value_from_register_(0x00,BQ25186_I2C_BITMASK_4);
 }
-bool bq25186::ilim_active() {
-	auto_refresh_all_registers_();			//Only refresh the registers if they have not been read recently
-	return bitRead(registers[0], 4) == 1;
+uint8_t bq25186::vdppm_active_stat() {
+	return read_bitmasked_value_from_register_(0x00,BQ25186_I2C_BITMASK_3);
 }
-bool bq25186::vdppm_active() {
-	auto_refresh_all_registers_();			//Only refresh the registers if they have not been read recently
-	return bitRead(registers[0], 3) == 1;
+uint8_t bq25186::vindpm_active_stat() {
+	return read_bitmasked_value_from_register_(0x00,BQ25186_I2C_BITMASK_2);
 }
-bool bq25186::vindpm_active() {
-	auto_refresh_all_registers_();			//Only refresh the registers if they have not been read recently
-	return bitRead(registers[0], 2) == 1;
+uint8_t bq25186::thermreg_active_stat() {
+	return read_bitmasked_value_from_register_(0x00,BQ25186_I2C_BITMASK_1);
 }
-bool bq25186::thermreg_active() {
-	auto_refresh_all_registers_();			//Only refresh the registers if they have not been read recently
-	return bitRead(registers[0], 1) == 1;
+uint8_t bq25186::vin_pgood_stat() {
+	return read_bitmasked_value_from_register_(0x00,BQ25186_I2C_BITMASK_0);
 }
-bool bq25186::vin_pgood() {
-	auto_refresh_all_registers_();			//Only refresh the registers if they have not been read recently
-	return bitRead(registers[0], 0) == 1;
+//Register 0x01
+uint8_t bq25186::vin_ovp_stat() {
+	return read_bitmasked_value_from_register_(0x01,BQ25186_I2C_BITMASK_7);
 }
-bool bq25186::vin_ovp() {
-	auto_refresh_all_registers_();			//Only refresh the registers if they have not been read recently
-	return bitRead(registers[1], 7) == 1;
+uint8_t bq25186::buvlo_stat() {
+	return read_bitmasked_value_from_register_(0x01,BQ25186_I2C_BITMASK_6);
 }
-bool bq25186::buvlo() {
-	auto_refresh_all_registers_();			//Only refresh the registers if they have not been read recently
-	return bitRead(registers[1], 6) == 1;
+uint8_t bq25186::ts_stat() {
+	return read_bitmasked_value_from_register_(0x01,BQ25186_I2C_BITMASK_4_3);
 }
-uint8_t bq25186::ts() {
-	auto_refresh_all_registers_();			//Only refresh the registers if they have not been read recently
-	return registers[1]&0b00011000;
+uint8_t bq25186::safety_tmr_fault_flag() {
+	return read_bitmasked_value_from_register_(0x01,BQ25186_I2C_BITMASK_2);
 }
-bool bq25186::safety_tmr_fault_flag() {
-	auto_refresh_all_registers_();			//Only refresh the registers if they have not been read recently
-	return bitRead(registers[1], 2) == 1;
+uint8_t bq25186::wake1_flag() {
+	return read_bitmasked_value_from_register_(0x01,BQ25186_I2C_BITMASK_1);
 }
-bool bq25186::wake1_flag() {
-	auto_refresh_all_registers_();			//Only refresh the registers if they have not been read recently
-	return bitRead(registers[1], 1) == 1;
+uint8_t bq25186::wake2_flag() {
+	return read_bitmasked_value_from_register_(0x01,BQ25186_I2C_BITMASK_0);
 }
-bool bq25186::wake2_flag() {
-	auto_refresh_all_registers_();			//Only refresh the registers if they have not been read recently
-	return bitRead(registers[1], 0) == 1;
+//Register 0x02
+uint8_t bq25186::ts_fault() {
+	return read_bitmasked_value_from_register_(0x02,BQ25186_I2C_BITMASK_7);
 }
-bool bq25186::ts_fault() {
-	auto_refresh_all_registers_();			//Only refresh the registers if they have not been read recently
-	return bitRead(registers[2], 7) == 1;
+uint8_t bq25186::ilim_active_flag() {
+	return read_bitmasked_value_from_register_(0x02,BQ25186_I2C_BITMASK_6);
 }
-bool bq25186::ilim_active_flag() {
-	auto_refresh_all_registers_();			//Only refresh the registers if they have not been read recently
-	return bitRead(registers[2], 6) == 1;
+uint8_t bq25186::vdppm_active_flag() {
+	return read_bitmasked_value_from_register_(0x02,BQ25186_I2C_BITMASK_5);
 }
-bool bq25186::vdppm_active_flag() {
-	auto_refresh_all_registers_();			//Only refresh the registers if they have not been read recently
-	return bitRead(registers[2], 5) == 1;
+uint8_t bq25186::vindpm_active_flag() {
+	return read_bitmasked_value_from_register_(0x02,BQ25186_I2C_BITMASK_4);
 }
-bool bq25186::vindpm_active_flag() {
-	auto_refresh_all_registers_();			//Only refresh the registers if they have not been read recently
-	return bitRead(registers[2], 4) == 1;
+uint8_t bq25186::thermreg_active_flag() {
+	return read_bitmasked_value_from_register_(0x02,BQ25186_I2C_BITMASK_3);
 }
-bool bq25186::thermreg_active_flag() {
-	auto_refresh_all_registers_();			//Only refresh the registers if they have not been read recently
-	return bitRead(registers[2], 3) == 1;
+uint8_t bq25186::vin_ovp_fault_flag() {
+	return read_bitmasked_value_from_register_(0x02,BQ25186_I2C_BITMASK_2);
 }
-bool bq25186::vin_ovp_fault_flag() {
-	auto_refresh_all_registers_();			//Only refresh the registers if they have not been read recently
-	return bitRead(registers[2], 2) == 1;
+uint8_t bq25186::buvlo_fault_flag() {
+	return read_bitmasked_value_from_register_(0x02,BQ25186_I2C_BITMASK_1);
 }
-bool bq25186::buvlo_fault_flag() {
-	auto_refresh_all_registers_();			//Only refresh the registers if they have not been read recently
-	return bitRead(registers[1], 1) == 1;
+uint8_t bq25186::bat_ocp_fault() {
+	return read_bitmasked_value_from_register_(0x02,BQ25186_I2C_BITMASK_0);
 }
-bool bq25186::bat_ocp_fault() {
-	auto_refresh_all_registers_();			//Only refresh the registers if they have not been read recently
-	return bitRead(registers[2], 0) == 1;
-}
-bool bq25186::get_pg_pin_mode() {
-	auto_refresh_all_registers_();			//Only refresh the registers if they have not been read recently
-	return bitRead(registers[3], 7) == 1;
+//Register 0x03
+uint8_t bq25186::get_pg_pin_mode() {
+	return read_bitmasked_value_from_register_(0x03,BQ25186_I2C_BITMASK_7);
 }
 bool bq25186::set_pg_pin_mode(uint8_t value) {
-	return write_masked_value_to_register_(0x03, 0b10000000, value);
+	return write_bitmasked_value_to_register_(0x03, BQ25186_I2C_BITMASK_7, value);
 }
 float bq25186::get_vbatreg() {
-	auto_refresh_all_registers_();			//Only refresh the registers if they have not been read recently
-	return 3.5 + ((registers[3]&0b01111111)*0.01);
+	return 3.5 + (float(read_bitmasked_value_from_register_(0x03,BQ25186_I2C_BITMASK_6_0))*0.01);
 }
 bool bq25186::set_vbatreg(float voltage) {
 	if(voltage >= 3.5 && voltage <= 4.65) {
-		auto_refresh_all_registers_();			//Only refresh the registers if they have not been read recently
-		registers[3] = (registers[3]&0b10000000)|uint8_t((voltage-3.5)*100);
-		return write_register_(3);
+		return write_bitmasked_value_to_register_(0x03, BQ25186_I2C_BITMASK_6_0, uint8_t((voltage-3.5)*100));
 	}
 	return false;
 }
-bool bq25186::get_chg_dis() {
-	auto_refresh_all_registers_();			//Only refresh the registers if they have not been read recently
-	return bitRead(registers[4], 7) == 1;
+//Register 0x04
+uint8_t bq25186::get_chg_dis() {
+	return read_bitmasked_value_from_register_(0x04,BQ25186_I2C_BITMASK_7);
 }
-bool bq25186::set_chg_dis(bool value) {
-	auto_refresh_all_registers_();			//Only refresh the registers if they have not been read recently
-	if(value == true) {
-		bitWrite(registers[4], 7, 1);
-	} else {
-		bitWrite(registers[4], 7, 0);
-	}
-	return write_register_(4);
+bool bq25186::set_chg_dis(uint8_t value) {
+	return write_bitmasked_value_to_register_(0x04, BQ25186_I2C_BITMASK_7, value);
 }
 uint16_t bq25186::get_ichg() {
-	uint8_t registerValue = registers[4]&0b01111111;
-	if(registerValue >= 31) {
-		return 40+((registerValue-31)*10);
+	uint8_t maskedRegisterValue = read_bitmasked_value_from_register_(0x04,BQ25186_I2C_BITMASK_6_0);
+	if(maskedRegisterValue > 31) {
+		return 40+((maskedRegisterValue-31)*10);
 	} else {
-		return (registerValue*5);
+		return (maskedRegisterValue+5);
 	}
 }
 bool bq25186::set_ichg(uint16_t value) {
-	if(value >= 35 && value <=1000) {
-		auto_refresh_all_registers_();			//Only refresh the registers if they have not been read recently
-		uint8_t registerValue = registers[4]&0b10000000;
-		if(value >= 40) {
-			registerValue = registerValue | ((value-40)/10);
+	if(value <= 1000) {
+		uint8_t maskedRegisterValue = 0;
+		if(value > 35) {
+			maskedRegisterValue = 32+((value-50)/10);
 		} else {
-			registerValue = registerValue | ((value)/5);
+			maskedRegisterValue = value-5;
 		}
-		return write_register_(4);
+		return write_bitmasked_value_to_register_(0x04, BQ25186_I2C_BITMASK_6_0, maskedRegisterValue);
 	}
 	return false;
 }
-bool bq25186::get_en_fc_mode() {
-	auto_refresh_all_registers_();			//Only refresh the registers if they have not been read recently
-	return bitRead(registers[5], 7) == 1;
+//Register 0x05
+uint8_t bq25186::get_en_fc_mode() {
+	return read_bitmasked_value_from_register_(0x05,BQ25186_I2C_BITMASK_7);
 }
-bool bq25186::set_en_fc_mode(bool value) {
-	if(value == true) {
-		bitWrite(registers[5], 7, 1);
-	} else {
-		bitWrite(registers[5], 7, 0);
-	}
-	return write_register_(5);
+bool bq25186::set_en_fc_mode(uint8_t value) {
+	return write_bitmasked_value_to_register_(0x05, BQ25186_I2C_BITMASK_7, value);
 }
 uint8_t bq25186::get_iprechg() {
-	return read_masked_value_from_register_(5,0b01000000);
+	return read_bitmasked_value_from_register_(0x05,BQ25186_I2C_BITMASK_6);
 }
 bool bq25186::set_iprechg(uint8_t value) {
-	return write_masked_value_to_register_(5, 0b01000000, value);
+	return write_bitmasked_value_to_register_(0x05, BQ25186_I2C_BITMASK_6, value);
 }
 uint8_t bq25186::get_iterm() {
-	return read_masked_value_from_register_(5,0b00110000);
+	return read_bitmasked_value_from_register_(0x05,BQ25186_I2C_BITMASK_5_4);
 }
 bool bq25186::set_iterm(uint8_t value) {
-	return write_masked_value_to_register_(5, 0b00110000, value);
+	return write_bitmasked_value_to_register_(0x05, BQ25186_I2C_BITMASK_5_4, value);
 }
 uint8_t bq25186::get_vindpm() {
-	return read_masked_value_from_register_(5,0b00001100);
+	return read_bitmasked_value_from_register_(0x05,BQ25186_I2C_BITMASK_3_2);
 }
 bool bq25186::set_vindpm(uint8_t value) {
-	return write_masked_value_to_register_(5, 0b00001100, value);
+	return write_bitmasked_value_to_register_(0x05, BQ25186_I2C_BITMASK_3_2, value);
 }
 uint8_t bq25186::get_therm_reg() {
-	return read_masked_value_from_register_(5,0b00000011);
+	return read_bitmasked_value_from_register_(0x05,BQ25186_I2C_BITMASK_1_0);
 }
 bool bq25186::set_therm_reg(uint8_t value) {
-	return write_masked_value_to_register_(5, 0b00000011, value);
+	return write_bitmasked_value_to_register_(0x05, BQ25186_I2C_BITMASK_1_0, value);
 }
-uint16_t bq25186::get_ibat_ocp() {
-	switch(read_masked_value_from_register_(6,0b11000000)) {
-	case BQ25186_IBAT_OCP_500MA:
-		return 500;
-	break;
-	case BQ25186_IBAT_OCP_1000MA:
-		return 1000;
-	break;
-	case BQ25186_IBAT_OCP_1500MA:
-		return 1500;
-	break;
-	case BQ25186_IBAT_OCP_3000MA:
-		return 3000;
-	break;
-	}
-	return 0;
+//Register 0x06
+uint8_t bq25186::get_ibat_ocp() {
+	return read_bitmasked_value_from_register_(0x06,BQ25186_I2C_BITMASK_7_6);
 }
 bool bq25186::set_ibat_ocp(uint8_t value) {
-	return write_masked_value_to_register_(6, 0b11000000, value);
+	return write_bitmasked_value_to_register_(0x06, BQ25186_I2C_BITMASK_7_6, value);
 }
 float bq25186::get_buvlo() {
-	switch(read_masked_value_from_register_(6,0b00111000)) {
+	switch(read_bitmasked_value_from_register_(0x06,BQ25186_I2C_BITMASK_5_3)) {
 	case BQ25186_BUVLO_30A:
 		return 3.0;
 	break;
@@ -354,96 +390,126 @@ float bq25186::get_buvlo() {
 }
 bool bq25186::set_buvlo(float value) {
 	if(value > 2.8) {
-		return write_masked_value_to_register_(6, 0b00111000, BQ25186_BUVLO_30A);
+		return write_bitmasked_value_to_register_(0x06, BQ25186_I2C_BITMASK_5_3, BQ25186_BUVLO_30A);
 	} else if(value > 2.6) {
-		return write_masked_value_to_register_(6, 0b00111000, BQ25186_BUVLO_28);
+		return write_bitmasked_value_to_register_(0x06, BQ25186_I2C_BITMASK_5_3, BQ25186_BUVLO_28);
 	} else if(value > 2.4) {
-		return write_masked_value_to_register_(6, 0b00111000, BQ25186_BUVLO_26);
+		return write_bitmasked_value_to_register_(0x06, BQ25186_I2C_BITMASK_5_3, BQ25186_BUVLO_26);
 	} else if(value > 2.2) {
-		return write_masked_value_to_register_(6, 0b00111000, BQ25186_BUVLO_24);
+		return write_bitmasked_value_to_register_(0x06, BQ25186_I2C_BITMASK_5_3, BQ25186_BUVLO_24);
 	} else if(value > 2.0) {
-		return write_masked_value_to_register_(6, 0b00111000, BQ25186_BUVLO_22);		
+		return write_bitmasked_value_to_register_(0x06, BQ25186_I2C_BITMASK_5_3, BQ25186_BUVLO_22);		
 	} else {
-		return write_masked_value_to_register_(6, 0b00111000, BQ25186_BUVLO_20);
+		return write_bitmasked_value_to_register_(0x06, BQ25186_I2C_BITMASK_5_3, BQ25186_BUVLO_20);
 	}
 }
 uint8_t bq25186::get_chg_status_int_mask() {
-	return read_masked_value_from_register_(6,0b00000100);
+	return read_bitmasked_value_from_register_(0x06,BQ25186_I2C_BITMASK_2);
 }
 bool bq25186::set_chg_status_int_mask(uint8_t value) {
-	return write_masked_value_to_register_(6, 0b00000100, value);
+	return write_bitmasked_value_to_register_(0x06, BQ25186_I2C_BITMASK_2, value);
 }
 uint8_t bq25186::get_ilim_int_mask() {
-	return read_masked_value_from_register_(6,0b00000010);
+	return read_bitmasked_value_from_register_(0x06,BQ25186_I2C_BITMASK_1);
 }
 bool bq25186::set_ilim_int_mask(uint8_t value) {
-	return write_masked_value_to_register_(6, 0b00000010, value);
+	return write_bitmasked_value_to_register_(0x06, BQ25186_I2C_BITMASK_1, value);
 }
 uint8_t bq25186::get_vindpm_int_mask() {
-	return read_masked_value_from_register_(6,0b00000001);
+	return read_bitmasked_value_from_register_(0x06,BQ25186_I2C_BITMASK_0);
 }
 bool bq25186::set_vindpm_int_mask(uint8_t value) {
-	return write_masked_value_to_register_(6, 0b00000001, value);
+	return write_bitmasked_value_to_register_(0x06, BQ25186_I2C_BITMASK_0, value);
 }
+//Register 0x07
+//ToDo
+
 //Register 0x08
 uint8_t bq25186::get_long_press_time() {
-	switch(read_masked_value_from_register_(8,0b11000000)) {
-	case BQ25186_MR_LPRESS_5S:
-		return 5;
-	break;
-	case BQ25186_MR_LPRESS_10S:
-		return 10;
-	break;
-	case BQ25186_MR_LPRESS_15S:
-		return 15;
-	break;
-	case BQ25186_MR_LPRESS_20S:
-		return 20;
-	break;
-	}
-	return 0;
+	return read_bitmasked_value_from_register_(0x08,BQ25186_I2C_BITMASK_7_6);
 }
-bool bq25186::set_long_press_time(uint8_t value) {							//Available values are 5/10/15/20s
-	if(value >= 20) {
-		return write_masked_value_to_register_(0x08, 0b11000000, BQ25186_MR_LPRESS_20S);
-	} else if(value >= 15) {
-		return write_masked_value_to_register_(0x08, 0b11000000, BQ25186_MR_LPRESS_15S);
-	} else if(value >= 10) {
-		return write_masked_value_to_register_(0x08, 0b11000000, BQ25186_MR_LPRESS_10S);
-	} else {
-		return write_masked_value_to_register_(0x08, 0b11000000, BQ25186_MR_LPRESS_5S);
-	}
+bool bq25186::set_long_press_time(uint8_t value) {
+	return write_bitmasked_value_to_register_(0x08, BQ25186_I2C_BITMASK_7_6, value);
+}
+uint8_t bq25186::get_mr_reset_vin() {
+	return read_bitmasked_value_from_register_(0x08,BQ25186_I2C_BITMASK_5);
+}
+bool bq25186::set_mr_reset_vin(uint8_t value) {
+	return write_bitmasked_value_to_register_(0x08, BQ25186_I2C_BITMASK_5, value);
+}
+uint8_t bq25186::get_autowake() {
+	return read_bitmasked_value_from_register_(0x08,BQ25186_I2C_BITMASK_4_3);
+}
+bool bq25186::set_autowake(uint8_t value) {
+	return write_bitmasked_value_to_register_(0x08, BQ25186_I2C_BITMASK_4_3, value);
+}
+uint8_t bq25186::get_ilim() {
+	return read_bitmasked_value_from_register_(0x08,BQ25186_I2C_BITMASK_4_3);
+}
+bool bq25186::set_ilim(uint8_t value) {
+	return write_bitmasked_value_to_register_(0x08, BQ25186_I2C_BITMASK_4_3, value);
 }
 //Register 0x09
+uint8_t bq25186::get_reg_rst() {
+	return read_bitmasked_value_from_register_(0x09,BQ25186_I2C_BITMASK_7);
+}
+bool bq25186::set_reg_rst(uint8_t value) {
+	return write_bitmasked_value_to_register_(0x09, BQ25186_I2C_BITMASK_7, value);
+}
+uint8_t bq25186::get_reset_ship() {
+	return read_bitmasked_value_from_register_(0x09,BQ25186_I2C_BITMASK_6_5);
+}
+bool bq25186::set_reset_ship(uint8_t value) {
+	return write_bitmasked_value_to_register_(0x09, BQ25186_I2C_BITMASK_6_5, value);
+}
 uint8_t bq25186::get_long_press_action() {
-	return read_masked_value_from_register_(0x09,0b00011000);
+	return read_bitmasked_value_from_register_(0x09,BQ25186_I2C_BITMASK_4_3);
 }
 bool bq25186::set_long_press_action(uint8_t value) {
-	return write_masked_value_to_register_(0x09, 0b00011000, value);
+	return write_bitmasked_value_to_register_(0x09, BQ25186_I2C_BITMASK_4_3, value);
 }
-//Register 0xa0
-uint8_t bq25186::get_sys_regulation_voltgage() {
-	return read_masked_value_from_register_(0xa0, 0b11100000);
+uint8_t bq25186::get_wake1_tmr() {
+	return read_bitmasked_value_from_register_(0x09,BQ25186_I2C_BITMASK_2);
 }
-bool bq25186::set_sys_regulation_voltgage(uint8_t value) {
-	return write_masked_value_to_register_(0xa0, 0b11100000, value);
+bool bq25186::set_wake1_tmr(uint8_t value) {
+	return write_bitmasked_value_to_register_(0x09, BQ25186_I2C_BITMASK_2, value);
+}
+uint8_t bq25186::get_wake2_tmr() {
+	return read_bitmasked_value_from_register_(0x09,BQ25186_I2C_BITMASK_1);
+}
+bool bq25186::set_wake2_tmr(uint8_t value) {
+	return write_bitmasked_value_to_register_(0x09, BQ25186_I2C_BITMASK_1, value);
+}
+uint8_t bq25186::get_en_push() {
+	return read_bitmasked_value_from_register_(0x09,BQ25186_I2C_BITMASK_0);
+}
+bool bq25186::set_en_push(uint8_t value) {
+	return write_bitmasked_value_to_register_(0x09, BQ25186_I2C_BITMASK_0, value);
+}
+
+//Register 0x0a
+uint8_t bq25186::get_sys_regulation_voltage() {
+	return read_bitmasked_value_from_register_(0x0a, 0b11100000);
+}
+bool bq25186::set_sys_regulation_voltage(uint8_t value) {
+	return write_bitmasked_value_to_register_(0x0a, 0b11100000, value);
 }
 uint8_t bq25186::get_pg_pin_state() {
-	return read_masked_value_from_register_(0xa0, 0b00010000);
+	return read_bitmasked_value_from_register_(0x0a, 0b00010000);
 }
 bool bq25186::set_pg_pin_state(uint8_t value) {
-	return write_masked_value_to_register_(0xa0, 0b00010000, value);
+	return write_bitmasked_value_to_register_(0x0a, 0b00010000, value);
 }
 uint8_t bq25186::get_sys_mode() {
-	return read_masked_value_from_register_(0xa0, 0b00001100);
+	return read_bitmasked_value_from_register_(0x0a, 0b00001100);
 }
 bool bq25186::set_sys_mode(uint8_t value) {
-	return write_masked_value_to_register_(0xa0, 0b00001100, value);
+	return write_bitmasked_value_to_register_(0x0a, 0b00001100, value);
 }
 uint8_t bq25186::get_i2c_watchdog_mode() {
-	return read_masked_value_from_register_(0xa0, 0b00000010);
+	return read_bitmasked_value_from_register_(0x0a, 0b00000010);
 }
 bool bq25186::set_i2c_watchdog_mode(uint8_t value) {
-	return write_masked_value_to_register_(0xa0, 0b00000010, value);
+	return write_bitmasked_value_to_register_(0x0a, 0b00000010, value);
 }
 #endif
