@@ -15,9 +15,9 @@ bq25186 charger;  //Create a new instance of the charger object
 uint32_t loopTimer = 0; //Use a loop timer instead of delay
 
 void setup() {
-  Serial.begin(115200);   //Set up the Serial for output
-  while(!Serial){}        //Wait for Serial to start, only needed on some boards
-  delay(5000);
+  Serial.begin(115200);     //Set up the Serial for output
+  while(!Serial){}          //Wait for Serial to start, only needed on some boards
+  delay(5000);              //Give a USB connection time to come up
   //charger.debug(Serial);  //Enable (quite verbose) debug output for the charger. Necessary for print_registers() to work
   Wire.begin();             //Start I²C
   if(charger.begin()) {     //Start the charger
