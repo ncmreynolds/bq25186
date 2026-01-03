@@ -133,7 +133,7 @@ uint8_t bq25186::read_bitmasked_value_from_register_(uint8_t index, uint8_t mask
 	if(auto_refresh_all_registers_()) {			//Only refreshes the registers if they have not been read recently
 		return registers[index] & mask;
 	} else {
-		return BQ25186_I2C_BITMASK_ALL;
+		return BQ25186_I2C_ERROR;
 	}
 }
 bool bq25186::write_register_(uint8_t registerIndex, uint8_t registerValue, bool stop) {
@@ -216,6 +216,15 @@ bool bq25186::write_bitmasked_value_to_register_(uint8_t index, uint8_t mask, ui
 uint8_t bq25186::ts_open_stat() {
 	return read_bitmasked_value_from_register_(0x00,BQ25186_I2C_BITMASK_7);
 }
+/*
+Get charging status, returns...
+
+	BQ25186_ENABLED_BUT_NOT_CHARGING
+	BQ25186_CC_CHARGING
+	BQ25186_CV_CHARGING
+	BQ25186_CHARGING_DONE_OR_DISABLED
+	BQ25186_I2C_ERROR
+*/
 uint8_t bq25186::chg_stat() {
 	return read_bitmasked_value_from_register_(0x00,BQ25186_I2C_BITMASK_6_5);
 }
@@ -286,7 +295,12 @@ bool bq25186::set_pg_pin_mode(uint8_t value) {
 	return write_bitmasked_value_to_register_(0x03, BQ25186_I2C_BITMASK_7, value);
 }
 float bq25186::get_vbatreg() {
-	return 3.5 + (float(read_bitmasked_value_from_register_(0x03,BQ25186_I2C_BITMASK_6_0))*0.01);
+	uint8_t vbatreg = read_bitmasked_value_from_register_(0x03,BQ25186_I2C_BITMASK_6_0);
+	if(vbatreg != BQ25186_I2C_ERROR) {
+		return 3.5 + (float(vbatreg)*0.01);
+	} else {
+		return 0;
+	}
 }
 bool bq25186::set_vbatreg(float voltage) {
 	if(voltage >= 3.5 && voltage <= 4.65) {
@@ -303,7 +317,9 @@ bool bq25186::set_chg_dis(uint8_t value) {
 }
 uint16_t bq25186::get_ichg() {
 	uint8_t maskedRegisterValue = read_bitmasked_value_from_register_(0x04,BQ25186_I2C_BITMASK_6_0);
-	if(maskedRegisterValue > 31) {
+	if(maskedRegisterValue == BQ25186_I2C_ERROR) {
+		return 0;
+	} else if(maskedRegisterValue > 31) {
 		return 40+((maskedRegisterValue-31)*10);
 	} else {
 		return (maskedRegisterValue+5);
@@ -360,31 +376,34 @@ bool bq25186::set_ibat_ocp(uint8_t value) {
 	return write_bitmasked_value_to_register_(0x06, BQ25186_I2C_BITMASK_7_6, value);
 }
 float bq25186::get_buvlo() {
-	switch(read_bitmasked_value_from_register_(0x06,BQ25186_I2C_BITMASK_5_3)) {
-	case BQ25186_BUVLO_30A:
-		return 3.0;
-	break;
-	case BQ25186_BUVLO_30B:
-		return 3.0;
-	break;
-	case BQ25186_BUVLO_30C:
-		return 3.0;
-	break;
-	case BQ25186_BUVLO_28:
-		return 2.8;
-	break;
-	case BQ25186_BUVLO_26:
-		return 2.6;
-	break;
-	case BQ25186_BUVLO_24:
-		return 2.4;
-	break;
-	case BQ25186_BUVLO_22:
-		return 2.2;
-	break;
-	case BQ25186_BUVLO_20:
-		return 2.0;
-	break;
+	uint8_t buvlo = read_bitmasked_value_from_register_(0x06,BQ25186_I2C_BITMASK_5_3);
+	if(buvlo != BQ25186_I2C_ERROR) {
+		switch(buvlo) {
+		case BQ25186_BUVLO_30A:
+			return 3.0;
+		break;
+		case BQ25186_BUVLO_30B:
+			return 3.0;
+		break;
+		case BQ25186_BUVLO_30C:
+			return 3.0;
+		break;
+		case BQ25186_BUVLO_28:
+			return 2.8;
+		break;
+		case BQ25186_BUVLO_26:
+			return 2.6;
+		break;
+		case BQ25186_BUVLO_24:
+			return 2.4;
+		break;
+		case BQ25186_BUVLO_22:
+			return 2.2;
+		break;
+		case BQ25186_BUVLO_20:
+			return 2.0;
+		break;
+		}
 	}
 	return 0;
 }

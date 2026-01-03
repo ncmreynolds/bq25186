@@ -37,7 +37,7 @@
 #define BQ25186_I2C_BITMASK_1_0				0b00000011
 #define BQ25186_I2C_BITMASK_0				0b00000001
 #define BQ25186_I2C_BITMASK_NONE			0b00000000
-#define BQ25186_I2C_BITMASK_ALL				0b11111111
+#define BQ25186_I2C_ERROR				0b11111111
 
 //Register 0x00
 
@@ -249,7 +249,7 @@ class bq25186 {
 		//Readable flags/status, see device datasheet for explanation of the values
 		//Register 0x00
 		uint8_t ts_open_stat();
-		uint8_t chg_stat();
+		uint8_t chg_stat();													//Get charging status, returns BQ25186_ENABLED_BUT_NOT_CHARGING, BQ25186_CC_CHARGING, BQ25186_CV_CHARGING or BQ25186_CHARGING_DONE_OR_DISABLED
 		uint8_t ilim_active_stat();
 		uint8_t vdppm_active_stat();
 		uint8_t vindpm_active_stat();
