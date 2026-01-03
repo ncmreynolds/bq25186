@@ -3,7 +3,7 @@
  * 
  * Ship mode only works when powered by battery, if you have a supply at VIN, the BQ25186 will not enter ship mode
  *
- * Holding the button will wake it from ship mode
+ * Holding the button or applying power to VIN will wake it from ship mode
  *
  * Assumes I2C connected on the default SDA/SCL. On the ESP32C3 used for testing this is...
  *
@@ -47,7 +47,7 @@ void loop() {
     if(millis() < 60e3) {
       Serial.print("Entering ship mode in ");
       Serial.print(int((60e3 - millis())/1e3));
-      Serial.println("s pressing button will wake from ship");
+      Serial.println("s applying power or pressing button will wake from ship");
     } else {
       Serial.print("Entering ship mode now:");
       if(charger.set_reset_ship(BQ25186_SHIP_MODE)) {
