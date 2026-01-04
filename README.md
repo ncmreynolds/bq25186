@@ -41,13 +41,13 @@ For example in the datasheet we have the following for CHG_STAT, which is the ch
 
 ### Read only values/flags
 
-With read-only values I have implemented access to this with a function, named for the lower case version of the 'significant human readable' portion of the name of the value in the data sheet, in lower case. It returns an integer value from a set of constants (done as #defines).
+With read-only values/flags I have implemented access to this with a function named for the 'significant human readable' portion of the name of that value in the data sheet, in lower case. It returns an integer value from a set of values (implemented as #defines).
 
 ```c++
 uint8_t chg_stat();
 ```
 
-This returns the following values, which again are the 'significant human readable' part of the description prefixed with BQ25186 all in upper case. The error code should be checked for as it means the library has been unable to communicate with the BQ25186 over I²C and you should handle that.
+This returns the following values, which again are the 'significant human readable' part of the description, prefixed with BQ25186 this time all in upper case. The error code (0xff, which does not occur for any other value) should be checked for as it means the library has been unable to communicate with the BQ25186 over I²C and your code should handle that.
 
 ```c++
 BQ25186_ENABLED_BUT_NOT_CHARGING
@@ -59,7 +59,7 @@ BQ25186_I2C_ERROR
 
 ### Read/write values (constant values)
 
-With read/write values I have used the get/set pattern for accessing them usually again using a set of constants (done as #defines) to get or set them. There are a small number of functions such as setting currents/voltages where these are done by directly passing an integer or float to make it more convenient (nobody wants to use one of 127 #defines to set a voltage).
+With read/write values I have used the get/set design pattern for accessing them usually again using a set of values (done as #defines) to get or set them. There are a small number of functions such as setting currents/voltages where these are done by directly passing an integer or float to make it more convenient (nobody wants to use one of 127 #defines to set a voltage).
 
 For example in the datasheet we have the following for MR_LPRESS which sets the length of the button 'long press'...
 
@@ -82,7 +82,7 @@ BQ25186_MR_LPRESS_20S
 BQ25186_I2C_ERROR (on get only)
 ```
 
-The get function will return BQ25186_I2C_ERROR on an I²C error. The set function will return false on an I²C error.
+The get function will return BQ25186_I2C_ERROR  (0xff, which does not occur for any other value) on an I²C error. The set function will return false on an I²C error. Errors should be checked for as it means the library has been unable to communicate with the BQ25186 over I²C and your code should handle that.
 
 ### Read/write values (numeric values)
 
@@ -97,12 +97,20 @@ float get_vbatreg();
 bool set_vbatreg(float voltage);
 ```
 
-The get function will return zero on an I²C error. The set function will return false on an I²C error.
+The get function will return zero  (which should be meaningless in context) on an I²C error. The set function will return false on an I²C error. Errors should be checked for as it means the library has been unable to communicate with the BQ25186 over I²C and your code should handle that.
 
-### Finding these functions (there are many)
+### Finding these functions & values (there are many)
 
-All the functions are in the source code in register order, as they appear on the datasheet. Almost all of them are implemented identically and they and the large number of #defined values serve just to make the register twiddling necessary to configure the BQ25186 human readable.
+Sadly you're going to have to read the datasheet and refer to the source in bq25186.h, documenting it all would just be an exercise in paraphrasing the datasheet. However all the functions and constants are in the source code in register order, as they appear on the datasheet.
+
+Almost all of the functions are implemented identically and they and the large number of #defined values serve just to make the register twiddling necessary to configure the BQ25186 human readable.
+
+## Register caching/rate limiting
+
+The library retains a copy of the BQ25186 registers in memory (it's only 14 bytes) and only refreshes them (all) from the device at most once a second. So you are safe to do multiple gets of different values in a short space of time in your code, it will only read the values over I²C when it needs to refresh them. Writes to registers are done immediately and if successful update the cached copy. The obvious corollary from this is that polling the same register value more than once a second is just going to return the cached value.
+
+Polling a register value more than once every few seconds is probably not of value, if you need to track status changes quickly you should probably use the interrupt pin of the BQ25186 to generate a hardware interrupt in your code on a state change.
 
 ## Version history
 
-- v0.1.0 - Initial release 04/01/2025
+- v0.1.0 - Initial release 4th January 2025 / 20250401
