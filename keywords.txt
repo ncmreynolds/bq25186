@@ -61,8 +61,8 @@ get_vindpm_int_mask	KEYWORD2
 set_vindpm_int_mask	KEYWORD2
 //Register 0x07
 //Register 0x08
-get_long_press_time	KEYWORD2
-set_long_press_time	KEYWORD2							//Available values are 5/10/15/20s
+get_mr_lpress	KEYWORD2
+set_mr_lpress	KEYWORD2							//Available values are 5/10/15/20s
 get_mr_reset_vin	KEYWORD2
 set_mr_reset_vin	KEYWORD2
 get_autowake	KEYWORD2
@@ -74,8 +74,8 @@ get_reg_rst	KEYWORD2
 set_reg_rst	KEYWORD2
 get_reset_ship	KEYWORD2
 set_reset_ship	KEYWORD2
-get_long_press_action	KEYWORD2
-set_long_press_action	KEYWORD2
+get_lpress_action	KEYWORD2
+set_lpress_action	KEYWORD2
 get_wake1_tmr	KEYWORD2
 set_wake1_tmr	KEYWORD2
 get_wake2_tmr	KEYWORD2

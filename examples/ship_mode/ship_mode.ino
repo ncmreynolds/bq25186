@@ -26,12 +26,12 @@ void setup() {
   Wire.begin();             //Start I²C
   if(charger.begin()) {     //Start the charger
     Serial.println("Read charger configuration OK");
-    if(charger.set_long_press_time(BQ25186_MR_LPRESS_5S)) { //Set to 5s
+    if(charger.set_mr_lpress(BQ25186_MR_LPRESS_5S)) { //Set to 5s
       Serial.println("Set button long press time");
     } else {
       Serial.println("Unable to set button long press time");
     }
-    if(charger.set_long_press_action(BQ25186_PB_LPRESS_ACTION_SHIP)) {  //Set to enter ship mode
+    if(charger.set_lpress_action(BQ25186_PB_LPRESS_ACTION_SHIP)) {  //Set to enter ship mode
       Serial.println("Set button long press action");
     } else {
       Serial.println("Unable to set button long press action");

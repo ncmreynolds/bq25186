@@ -305,8 +305,8 @@ class bq25186 {
 		bool set_vindpm_int_mask(uint8_t value);
 		//Register 0x07
 		//Register 0x08
-		uint8_t get_long_press_time();
-		bool set_long_press_time(uint8_t value);							//Available values are 5/10/15/20s
+		uint8_t get_mr_lpress();
+		bool set_mr_lpress(uint8_t value);							//Available values are 5/10/15/20s
 		uint8_t get_mr_reset_vin();
 		bool set_mr_reset_vin(uint8_t value);
 		uint8_t get_autowake();
@@ -318,8 +318,8 @@ class bq25186 {
 		bool set_reg_rst(uint8_t value);
 		uint8_t get_reset_ship();
 		bool set_reset_ship(uint8_t value);
-		uint8_t get_long_press_action();
-		bool set_long_press_action(uint8_t value);
+		uint8_t get_lpress_action();
+		bool set_lpress_action(uint8_t value);
 		uint8_t get_wake1_tmr();
 		bool set_wake1_tmr(uint8_t value);
 		uint8_t get_wake2_tmr();

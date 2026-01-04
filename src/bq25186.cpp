@@ -444,10 +444,10 @@ bool bq25186::set_vindpm_int_mask(uint8_t value) {
 //ToDo
 
 //Register 0x08
-uint8_t bq25186::get_long_press_time() {
+uint8_t bq25186::get_mr_lpress() {
 	return read_bitmasked_value_from_register_(0x08,BQ25186_I2C_BITMASK_7_6);
 }
-bool bq25186::set_long_press_time(uint8_t value) {
+bool bq25186::set_mr_lpress(uint8_t value) {
 	return write_bitmasked_value_to_register_(0x08, BQ25186_I2C_BITMASK_7_6, value);
 }
 uint8_t bq25186::get_mr_reset_vin() {
@@ -481,10 +481,10 @@ uint8_t bq25186::get_reset_ship() {
 bool bq25186::set_reset_ship(uint8_t value) {
 	return write_bitmasked_value_to_register_(0x09, BQ25186_I2C_BITMASK_6_5, value);
 }
-uint8_t bq25186::get_long_press_action() {
+uint8_t bq25186::get_lpress_action() {
 	return read_bitmasked_value_from_register_(0x09,BQ25186_I2C_BITMASK_4_3);
 }
-bool bq25186::set_long_press_action(uint8_t value) {
+bool bq25186::set_lpress_action(uint8_t value) {
 	return write_bitmasked_value_to_register_(0x09, BQ25186_I2C_BITMASK_4_3, value);
 }
 uint8_t bq25186::get_wake1_tmr() {
