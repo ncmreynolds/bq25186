@@ -40,6 +40,11 @@ void setup() {
     } else {
       Serial.println("Unable to set battery charge termination current");
     }
+    if(charger.set_buvlo(3.0)) {  //Battery protection, valid voltages 2.0/2.2/2.4/2.6/2.8/3.0
+      Serial.println("Set battery undervoltage lockout");
+    } else {
+      Serial.println("Unable to set battery undervoltage lockout");
+    }
   } else {
     Serial.println("Unable to read charger registers, is it connected?");
   }
@@ -50,7 +55,9 @@ void loop() {
     loopTimer = millis();           //Avoiding using delay()
     Serial.print("Charging state:");
     if(charger.chg_stat() == BQ25186_ENABLED_BUT_NOT_CHARGING) {
-      Serial.println("enabled but not charging");
+      Serial.print("enabled but not charging, battery undervoltage lockout ");
+      Serial.print(charger.get_buvlo());
+      Serial.println('V');
     } else if(charger.chg_stat() == BQ25186_CC_CHARGING) {
       Serial.print("constant current:");
       Serial.print(charger.get_ichg());
@@ -74,7 +81,13 @@ void loop() {
         Serial.println("unknown");
       }
     } else if(charger.chg_stat() == BQ25186_CHARGING_DONE_OR_DISABLED) {
-      Serial.println("done or disabled");
+      if(charger.vin_pgood_stat() == BQ25186_POWER_GOOD) {
+        Serial.println("done");
+      } else {
+        Serial.print("disabled, battery undervoltage lockout ");
+        Serial.print(charger.get_buvlo());
+        Serial.println('V');
+      }
     } else {
       Serial.println("unknown");
     }
